@@ -20,6 +20,11 @@
 #define ROM_BIT6_PIN       A3
 #define ROM_BIT7_PIN       A4   // MSB
 
+#define ROM_SIZE           16
+#define RESET_DELAY_MS     500
+#include <limits.h>
+#define INITIAL_LAST_CLOCK_TIME INT_MIN
+
 // コピペ用命令一覧
 // MOV A, Im
 //   B00110000,
@@ -167,10 +172,9 @@ unsigned char rom[] = {
 };
 
 // クロック制御
-unsigned long lastClockTime = 0;
+unsigned long lastClockTime = INITIAL_LAST_CLOCK_TIME;
 unsigned long clockInterval = 100;
 bool clockState = LOW;
-bool systemReset = false;
 
 // システム状態
 unsigned char currentAddress = 0;
@@ -207,16 +211,22 @@ void loop() {
   delay(1);
 }
 
-void readROM() {
+void updateROMOutput() {
+  // プログラムカウンタ読み取り
   int addr_bit0 = digitalRead(ADDR_BIT0_PIN);
   int addr_bit1 = digitalRead(ADDR_BIT1_PIN);
   int addr_bit2 = digitalRead(ADDR_BIT2_PIN);
   int addr_bit3 = digitalRead(ADDR_BIT3_PIN);
   
   currentAddress = (addr_bit3 << 3) | (addr_bit2 << 2) | (addr_bit1 << 1) | addr_bit0;
+  if (currentAddress >= ROM_SIZE) {
+    Serial.println("エラー: 無効なアドレス");
+    return;
+  }
   
   currentInstruction = rom[currentAddress];
-  
+
+  // ROMからプログラムカウンタが指す行のプログラムを出力する
   digitalWrite(ROM_BIT0_PIN, (currentInstruction >> 0) & 1);
   digitalWrite(ROM_BIT1_PIN, (currentInstruction >> 1) & 1);
   digitalWrite(ROM_BIT2_PIN, (currentInstruction >> 2) & 1);
@@ -227,40 +237,39 @@ void readROM() {
   digitalWrite(ROM_BIT7_PIN, (currentInstruction >> 7) & 1);
 }
 
+bool shouldUpdateClock() {
+  return (millis() - lastClockTime >= clockInterval);
+}
+
 void generateClock() {
   unsigned long currentTime = millis();
-  if (currentTime - lastClockTime >= clockInterval) {
-    clockState = !clockState;
-    digitalWrite(CLOCK_OUTPUT_PIN, clockState);
-    lastClockTime = currentTime;
-    
-    // 立ち上がりエッジ
-    if (clockState == HIGH) {
-      readROM();
-      printSystemStatus();
-    }
+
+  if (!shouldUpdateClock()) {
+    return;
+  }
+
+  clockState = !clockState;
+  digitalWrite(CLOCK_OUTPUT_PIN, clockState);
+  lastClockTime = currentTime;
+  
+  // クロックがLからHに変わった場合（クロックが立ち上がった場合）の処理
+  if (clockState == HIGH) {
+    updateROMOutput();
+    printSystemStatus();
   }
 }
 
 void reset() {
   Serial.println("システムリセット実行");
-  // プログラムカウンタをリセットする。
-  // 74HC163はCLRがLの状態でクロックが立ち上がるとリセットされる。
-  digitalWrite(RESET_OUTPUT_PIN, LOW);
-
-  delay(500);
-
-  digitalWrite(CLOCK_OUTPUT_PIN, HIGH);
-  lastClockTime = millis();
-
-  delay(500);
-
-  digitalWrite(RESET_OUTPUT_PIN, HIGH);
+  // レジスタには、書籍と異なり74HC163を使っている
+  // 74HC163をリセットするには、CLRがLの状態でクロックを立ち上げる必要がある
   digitalWrite(CLOCK_OUTPUT_PIN, LOW);
-  Serial.println("システムリセット完了");
+  digitalWrite(RESET_OUTPUT_PIN, LOW);
+  delay(RESET_DELAY_MS);
 
-  readROM();
-  printSystemStatus();
+  // 初回のクロック立ち上げ
+  generateClock();
+  digitalWrite(RESET_OUTPUT_PIN, HIGH);
 }
 
 void printSystemStatus() {
