@@ -20,29 +20,155 @@
 #define ROM_BIT6_PIN       A3
 #define ROM_BIT7_PIN       A4   // MSB
 
-// ROMデータ（8ビット×16行）
+// コピペ用命令一覧
+// MOV A, Im
+//   B00110000,
+// MOV B, im
+//   B01110000,
+// MOV A, B
+//   B00010000,
+// MOV B, A
+//   B01000000,
+// ADD A, Im
+//   B00000000,
+// ADD B, Im
+//   B01010000,
+// IN A
+//   B00100000,
+// IN B
+//   B01100000,
+// OUT Im
+//   B10110000,
+// OUT B
+//   B10010000,
+// JMP Im
+//   B11110000,
+// JNC Im
+//   B11100000,
+
+// ROMデータ（命令テスト: 転送）
+// unsigned char rom[] = {
+//   // Aを111に
+//   B00110111,
+
+//   // 結果をBレジスタに移す
+//   B01000000,
+
+//   // Bレジスタの値を出力する
+//   B10010000,
+
+//   // レジスタと出力ポートを0に
+//   B00110000,
+//   B01110000,
+//   B10110000,
+
+//   // 0行目へジャンプ
+//   B11110000,
+
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+// };
+
+// ROMデータ（命令テスト: 加算）
+// unsigned char rom[] = {
+//   // Aレジスタで0101+0010
+//   B00110101,
+//   B00000010,
+
+//   // 結果をBレジスタに移す
+//   B01000000,
+
+//   // Bレジスタの値を出力する
+//   B10010000,
+
+//   // レジスタと出力ポートを0に
+//   B00110000,
+//   B01110000,
+//   B10110000,
+
+//   // 0行目へジャンプ
+//   B11110000,
+
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+// };
+
+// ROMデータ（命令テスト: In A）
+// unsigned char rom[] = {
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+//   B00100000,
+// };
+
+// ROMデータ（Lチカ）
+// unsigned char rom[] = {
+//   B10110011,
+//   B10110110,
+//   B10111100,
+//   B10111000,
+//   B10111000,
+//   B10111100,
+//   B10110110,
+//   B10110011,
+//   B10110001,
+//   B11110000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+//   B00000000,
+// };
+
+// ROMデータ（ラーメンタイマー）
 unsigned char rom[] = {
-  B00000000,  // アドレス 0
-  B00000001,  // アドレス 1
-  B00000011,  // アドレス 2
-  B00000111,  // アドレス 3
-  B00001111,  // アドレス 4
-  B00011111,  // アドレス 5
-  B00111111,  // アドレス 6
-  B01111111,  // アドレス 7
-  B11111111,  // アドレス 8
-  B11111110,  // アドレス 9
-  B11111100,  // アドレス 10
-  B11111000,  // アドレス 11
-  B11110000,  // アドレス 12
-  B11100000,  // アドレス 13
-  B11000000,  // アドレス 14
-  B10000000,  // アドレス 15
+  B10110111,
+  B00000001,
+  B11100001,
+  B00000001,
+  B11100011,
+  B10110110,
+  B00000001,
+  B11100110,
+  B00000001,
+  B11101000,
+  B10110000,
+  B10110100,
+  B00000001,
+  B11101010,
+  B10111000,
+  B11111111,
 };
 
-// クロック制御変数
+// クロック制御
 unsigned long lastClockTime = 0;
-unsigned long clockInterval = 500;
+unsigned long clockInterval = 100;
 bool clockState = LOW;
 bool systemReset = false;
 
@@ -76,12 +202,9 @@ void setup() {
   reset();
 }
 
-void loop() {
-  readROM();
-  
+void loop() { 
   generateClock();
-  
-  delay(1); // 短いディレイで安定性向上
+  delay(1);
 }
 
 void readROM() {
@@ -111,25 +234,33 @@ void generateClock() {
     digitalWrite(CLOCK_OUTPUT_PIN, clockState);
     lastClockTime = currentTime;
     
-    // 立ち上がりエッジでデバッグ出力
+    // 立ち上がりエッジ
     if (clockState == HIGH) {
+      readROM();
       printSystemStatus();
     }
   }
 }
 
 void reset() {
-  // プログラムカウンタをリセット
-  digitalWrite(RESET_OUTPUT_PIN, LOW);  // リセット実行
-  delay(10);
-  digitalWrite(RESET_OUTPUT_PIN, HIGH); // リセット解除
-  delay(10);
-  
-  // クロック状態リセット
-  clockState = LOW;
-  digitalWrite(CLOCK_OUTPUT_PIN, LOW);
-  
   Serial.println("システムリセット実行");
+  // プログラムカウンタをリセットする。
+  // 74HC163はCLRがLの状態でクロックが立ち上がるとリセットされる。
+  digitalWrite(RESET_OUTPUT_PIN, LOW);
+
+  delay(500);
+
+  digitalWrite(CLOCK_OUTPUT_PIN, HIGH);
+  lastClockTime = millis();
+
+  delay(500);
+
+  digitalWrite(RESET_OUTPUT_PIN, HIGH);
+  digitalWrite(CLOCK_OUTPUT_PIN, LOW);
+  Serial.println("システムリセット完了");
+
+  readROM();
+  printSystemStatus();
 }
 
 void printSystemStatus() {
